@@ -23,12 +23,16 @@ import com.google.android.exoplayer2.util.MimeTypes;
 import com.google.android.exoplayer2.util.NalUnitUtil;
 import com.google.android.exoplayer2.util.ParsableByteArray;
 import com.google.android.exoplayer2.video.AvcConfig;
+import com.google.android.exoplayer2.video.HevcConfig;
 
 /** Parses video tags from an FLV stream and extracts H.264 nal units. */
 /* package */ final class VideoTagPayloadReader extends TagPayloadReader {
 
   // Video codec.
   private static final int VIDEO_CODEC_AVC = 7;
+
+  // H265
+  private static final int VIDEO_CODEC_HEVC = 12;
 
   // Frame types.
   private static final int VIDEO_FRAME_KEYFRAME = 1;
@@ -47,6 +51,8 @@ import com.google.android.exoplayer2.video.AvcConfig;
   private boolean hasOutputFormat;
   private boolean hasOutputKeyframe;
   private int frameType;
+  // codec type
+  private int lastType;
 
   /**
    * @param output A {@link TrackOutput} to which samples should be written.
@@ -67,8 +73,11 @@ import com.google.android.exoplayer2.video.AvcConfig;
     int header = data.readUnsignedByte();
     int frameType = (header >> 4) & 0x0F;
     int videoCodec = (header & 0x0F);
-    // Support just H.264 encoded content.
-    if (videoCodec != VIDEO_CODEC_AVC) {
+    if (videoCodec == VIDEO_CODEC_AVC || videoCodec == VIDEO_CODEC_HEVC) {
+      lastType = videoCodec;
+    }
+    // Support H.264 and H.265 encoded content.
+    if (videoCodec != VIDEO_CODEC_AVC && videoCodec != VIDEO_CODEC_HEVC) {
       throw new UnsupportedFormatException("Video format not supported: " + videoCodec);
     }
     this.frameType = frameType;
@@ -81,22 +90,40 @@ import com.google.android.exoplayer2.video.AvcConfig;
     int compositionTimeMs = data.readInt24();
 
     timeUs += compositionTimeMs * 1000L;
+    Format format = null;
     // Parse avc sequence header in case this was not done before.
     if (packetType == AVC_PACKET_TYPE_SEQUENCE_HEADER && !hasOutputFormat) {
       ParsableByteArray videoSequence = new ParsableByteArray(new byte[data.bytesLeft()]);
       data.readBytes(videoSequence.getData(), 0, data.bytesLeft());
-      AvcConfig avcConfig = AvcConfig.parse(videoSequence);
-      nalUnitLengthFieldLength = avcConfig.nalUnitLengthFieldLength;
-      // Construct and output the format.
-      Format format =
-          new Format.Builder()
-              .setSampleMimeType(MimeTypes.VIDEO_H264)
-              .setCodecs(avcConfig.codecs)
-              .setWidth(avcConfig.width)
-              .setHeight(avcConfig.height)
-              .setPixelWidthHeightRatio(avcConfig.pixelWidthHeightRatio)
-              .setInitializationData(avcConfig.initializationData)
-              .build();
+
+      if (lastType == VIDEO_CODEC_HEVC) {
+        // H.265
+        HevcConfig hevcConfig = HevcConfig.parse(videoSequence);
+        nalUnitLengthFieldLength = hevcConfig.nalUnitLengthFieldLength;
+        format = new Format.Builder()
+                .setSampleMimeType(MimeTypes.VIDEO_H265)
+                .setCodecs(hevcConfig.codecs)
+                .setWidth(hevcConfig.width)
+                .setHeight(hevcConfig.height)
+                .setPixelWidthHeightRatio(hevcConfig.pixelWidthHeightRatio)
+                .setInitializationData(hevcConfig.initializationData)
+                .build();
+      } else {
+        // H.264
+        AvcConfig avcConfig = AvcConfig.parse(videoSequence);
+        nalUnitLengthFieldLength = avcConfig.nalUnitLengthFieldLength;
+        // Construct and output the format.
+        format =
+                new Format.Builder()
+                        .setSampleMimeType(MimeTypes.VIDEO_H264)
+                        .setCodecs(avcConfig.codecs)
+                        .setWidth(avcConfig.width)
+                        .setHeight(avcConfig.height)
+                        .setPixelWidthHeightRatio(avcConfig.pixelWidthHeightRatio)
+                        .setInitializationData(avcConfig.initializationData)
+                        .build();
+      }
+
       output.format(format);
       hasOutputFormat = true;
       return false;
