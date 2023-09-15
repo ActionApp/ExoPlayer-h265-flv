@@ -19,9 +19,12 @@ import androidx.annotation.Nullable;
 import com.google.android.exoplayer2.C;
 import com.google.android.exoplayer2.Format;
 import com.google.android.exoplayer2.ParserException;
+import com.google.android.exoplayer2.audio.MpegAudioUtil;
 import com.google.android.exoplayer2.util.CodecSpecificDataUtil;
 import com.google.android.exoplayer2.util.NalUnitUtil;
 import com.google.android.exoplayer2.util.ParsableByteArray;
+
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -125,6 +128,82 @@ public final class HevcConfig {
           colorTransfer,
           pixelWidthHeightRatio,
           codecs);
+    } catch (ArrayIndexOutOfBoundsException e) {
+      throw ParserException.createForMalformedContainer("Error parsing HEVC config", e);
+    }
+  }
+
+  /**
+   * Parses HEVC configuration data from AVC format.
+   *
+   * In RTMP with H265, some encoders (ex. AVTech camera) will use H264/AVC like format for configuration
+   *
+   * @param data A {@link ParsableByteArray}, whose position is set to the start of the HEVC
+   *     configuration data to parse.
+   * @return A parsed representation of the HEVC configuration data.
+   * @throws ParserException If an error occurred parsing the data.
+   */
+  public static HevcConfig parse_h264format(ParsableByteArray data) throws ParserException {
+    try {
+      data.skipBytes(4); // Skip to the AVCDecoderConfigurationRecord (defined in 14496-15)
+      int nalUnitLengthFieldLength = (data.readUnsignedByte() & 0x3) + 1;
+      if (nalUnitLengthFieldLength == 3) {
+        throw new IllegalStateException();
+      }
+      List<byte[]> initializationData = new ArrayList<>();
+      int numSequenceParameterSets = data.readUnsignedByte() & 0x1F;
+      for (int j = 0; j < numSequenceParameterSets; j++) {
+        int length = data.readUnsignedShort();
+        int offset = data.getPosition();
+        data.skipBytes(length);
+        initializationData.add(CodecSpecificDataUtil.buildNalUnit(data.getData(), offset, length));
+      }
+      int numPictureParameterSets = data.readUnsignedByte();
+      for (int j = 0; j < numPictureParameterSets; j++) {
+        int length = data.readUnsignedShort();
+        int offset = data.getPosition();
+        data.skipBytes(length);
+        initializationData.add(CodecSpecificDataUtil.buildNalUnit(data.getData(), offset, length));
+      }
+
+      int width = Format.NO_VALUE;
+      int height = Format.NO_VALUE;
+      @C.ColorSpace int colorSpace = Format.NO_VALUE;
+      @C.ColorRange int colorRange = Format.NO_VALUE;
+      @C.ColorTransfer int colorTransfer = Format.NO_VALUE;
+      float pixelWidthHeightRatio = 1;
+      @Nullable String codecs = null;
+      if (numSequenceParameterSets > 0) {
+        byte[] sps = initializationData.get(0);
+        NalUnitUtil.H265SpsData spsData =
+                NalUnitUtil.parseH265SpsNalUnit(
+                        initializationData.get(0), nalUnitLengthFieldLength, sps.length);
+        width = spsData.width;
+        height = spsData.height;
+        colorSpace = spsData.colorSpace;
+        colorRange = spsData.colorRange;
+        colorTransfer = spsData.colorTransfer;
+        pixelWidthHeightRatio = spsData.pixelWidthHeightRatio;
+        codecs =
+                CodecSpecificDataUtil.buildHevcCodecString(
+                        spsData.generalProfileSpace,
+                        spsData.generalTierFlag,
+                        spsData.generalProfileIdc,
+                        spsData.generalProfileCompatibilityFlags,
+                        spsData.constraintBytes,
+                        spsData.generalLevelIdc);
+      }
+
+      return new HevcConfig(
+              initializationData,
+              nalUnitLengthFieldLength,
+              width,
+              height,
+              colorSpace,
+              colorRange,
+              colorTransfer,
+              pixelWidthHeightRatio,
+              codecs);
     } catch (ArrayIndexOutOfBoundsException e) {
       throw ParserException.createForMalformedContainer("Error parsing HEVC config", e);
     }

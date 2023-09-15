@@ -107,7 +107,13 @@ import com.google.android.exoplayer2.video.HevcConfig;
       if (lastType == VIDEO_CODEC_HEVC) {
         // H.265
         HevcConfig hevcConfig = HevcConfig.parse(videoSequence);
+        if (hevcConfig.codecs == null || hevcConfig.width <= 0 || hevcConfig.height <= 0) {
+          // in RTMP with h265 case, some encoders (ex. AVTech cameras) will use H264/AVC format for configuration
+          videoSequence.setPosition(0);
+          hevcConfig = HevcConfig.parse_h264format(videoSequence);
+        }
         nalUnitLengthFieldLength = hevcConfig.nalUnitLengthFieldLength;
+        // Construct and output the format.
         format = new Format.Builder()
                 .setSampleMimeType(MimeTypes.VIDEO_H265)
                 .setCodecs(hevcConfig.codecs)
