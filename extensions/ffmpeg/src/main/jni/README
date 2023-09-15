@@ -1,0 +1,24 @@
+See https://github.com/google/ExoPlayer/tree/release-v2/extensions/ffmpeg
+
+1.
+build command:
+
+./build_ffmpeg.sh "$(pwd)/extensions/ffmpeg/src/main" "<NDK_PATH>" "linux-x86_64" "pcm_mulaw" "pcm_alaw"
+
+
+2.
+Download NDK version: NDK r21
+
+3.
+HOST_PLATFORM = "linux-x86_64"
+use "darwin-x86_64" for Mac OS X
+
+4.
+FFMPEG version: 4.2
+git checkout release/4.2
+
+5.
+create a symbolic link "ffmpeg" to the path of downloaded FFMPEG
+
+6.
+enable decoder: pcm_mulaw and pcm_alaw
